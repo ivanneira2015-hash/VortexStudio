@@ -6,6 +6,7 @@ import projectsRouter from './routes/projects.js'
 import generateRouter from './routes/generate.js'
 import exportRouter from './routes/export.js'
 import buildRouter from './routes/build.js'
+import shareRouter from './routes/share.js'
 
 const app = express()
 const PORT = Number(process.env.PORT) || 3001
@@ -28,5 +29,6 @@ app.use('/api/projects', projectsRouter)
 app.use('/api/generate', generateRouter)
 app.use('/api/export', exportRouter)
 app.use('/api/build', buildRouter)
+app.use('/api/share', shareRouter)
 
 app.listen(PORT, () => console.log(`Vortex backend → http://localhost:${PORT}`))

@@ -9,6 +9,7 @@ interface RouterOptions {
   byokGroq?: string
   byokAnthropic?: string
   byokOpenai?: string
+  byokOllama?: boolean
 }
 
 export interface RouterResult {
@@ -26,6 +27,11 @@ export async function generate(opts: RouterOptions): Promise<RouterResult> {
 
   const openaiKey = opts.byokOpenai || process.env.OPENAI_API_KEY
   if (openaiKey) return generateOpenAI(opts, openaiKey)
+
+  if (opts.byokOllama) {
+    const ollamaBaseUrl = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434'
+    return generateOllama(opts, ollamaBaseUrl)
+  }
 
   throw new Error('Sin proveedor de IA configurado. Agregá GROQ_API_KEY en .env (gratis en console.groq.com)')
 }
@@ -103,4 +109,26 @@ async function generateOpenAI(opts: RouterOptions, apiKey: string): Promise<Rout
   const content = data.choices[0].message.content
   if (opts.onChunk) opts.onChunk(content)
   return { content, provider: 'openai', model }
+}
+
+async function generateOllama(opts: RouterOptions, baseUrl: string): Promise<RouterResult> {
+  const model = process.env.OLLAMA_MODEL ?? 'llama3.1:8b'
+  const res = await fetch(`${baseUrl}/api/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: opts.systemPrompt },
+        { role: 'user', content: opts.userPrompt },
+      ],
+      stream: false,
+      format: 'json',
+    }),
+  })
+  if (!res.ok) throw new Error(`Ollama error: ${res.status} — asegurate de tener Ollama corriendo en ${baseUrl}`)
+  const data = await res.json() as { message: { content: string } }
+  const content = data.message.content
+  if (opts.onChunk) opts.onChunk(content)
+  return { content, provider: 'ollama', model }
 }

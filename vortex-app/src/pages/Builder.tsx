@@ -1,10 +1,45 @@
 import { useState, useRef, useEffect } from 'react'
 import { GeneratedApp, AppStack, AppTarget } from '../types'
-import { streamGenerate, streamEditScreen, streamBuildApk, StreamEvent } from '../api/client'
+import { streamGenerate, streamEditScreen, streamBuildApk, streamGenerateFromImage, shareApp, StreamEvent } from '../api/client'
 import { PhoneFrame } from '../components/PhoneFrame'
 import { CodePanel } from '../components/CodePanel'
 import { PromptBar } from '../components/PromptBar'
 import { TemplatesGrid, Template } from '../components/Templates'
+
+/* ── History types ── */
+interface HistoryEntry {
+  id: string
+  name: string
+  timestamp: number
+  app: GeneratedApp
+  stack: AppStack
+  target: AppTarget
+}
+
+const HISTORY_KEY = 'vortex_history'
+const HISTORY_MAX = 20
+
+function loadHistory(): HistoryEntry[] {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') as HistoryEntry[]
+  } catch {
+    return []
+  }
+}
+
+function saveToHistory(entry: HistoryEntry) {
+  let history = loadHistory()
+  // Remove duplicate by same app name if exists
+  history = history.filter(h => h.id !== entry.id)
+  history.unshift(entry)
+  if (history.length > HISTORY_MAX) history = history.slice(0, HISTORY_MAX)
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history))
+}
+
+function deleteFromHistory(id: string) {
+  const history = loadHistory().filter(h => h.id !== id)
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history))
+}
 
 interface Message {
   role: 'user' | 'assistant' | 'status'
@@ -46,6 +81,21 @@ export function Builder() {
   const [editPrompt, setEditPrompt] = useState('')
   const [editingScreen, setEditingScreen] = useState(false)
   const [showEditBar, setShowEditBar] = useState(false)
+
+  // History panel state
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory())
+
+  // Image upload state
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [imageBase64, setImageBase64] = useState<string | null>(null)
+  const [imageType, setImageType] = useState<string>('image/png')
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const abortImageRef = useRef<(() => void) | null>(null)
+
+  // Share toast state
+  const [shareToast, setShareToast] = useState<{ url: string } | null>(null)
+  const shareToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const abortRef = useRef<(() => void) | null>(null)
   const abortEditRef = useRef<(() => void) | null>(null)
@@ -159,6 +209,18 @@ export function Builder() {
           setLoading(false)
           setRightPanel('preview')
 
+          // Auto-save to history
+          const entry: HistoryEntry = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            name: generatedApp.app_name,
+            timestamp: Date.now(),
+            app: generatedApp,
+            stack: s,
+            target: t,
+          }
+          saveToHistory(entry)
+          setHistory(loadHistory())
+
           const rec = generatedApp.stack_recommendation
           if (rec && !rec.is_current_stack_ideal) {
             addMsg({ role: 'assistant', content: `__rec__${JSON.stringify(rec)}` })
@@ -228,6 +290,106 @@ export function Builder() {
     })
   }
 
+  function handleHistoryLoad(entry: HistoryEntry) {
+    setApp(entry.app)
+    setStack(entry.stack)
+    setTarget(entry.target)
+    setHistoryOpen(false)
+    setRightPanel('preview')
+    addMsg({ role: 'status', content: `Proyecto "${entry.name}" cargado desde historial` })
+  }
+
+  function handleHistoryDelete(id: string) {
+    deleteFromHistory(id)
+    setHistory(loadHistory())
+  }
+
+  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImageType(file.type)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const result = ev.target?.result as string
+      // result is "data:image/png;base64,XXXXX"
+      const base64 = result.split(',')[1]
+      setImageBase64(base64)
+      setImagePreview(result)
+    }
+    reader.readAsDataURL(file)
+    // Reset input so same file can be selected again
+    e.target.value = ''
+  }
+
+  function handleGenerateFromImage() {
+    if (!imageBase64 || loading) return
+    if (abortImageRef.current) abortImageRef.current()
+    if (abortRef.current) abortRef.current()
+    setLoading(true)
+    setShowEditBar(false)
+    addMsg({ role: 'user', content: 'Generar app desde imagen/wireframe' })
+
+    abortImageRef.current = streamGenerateFromImage(
+      { imageBase64, imageType, stack, target },
+      (event: StreamEvent) => {
+        if (event.type === 'heartbeat') return
+        if (event.type === 'status') {
+          addMsg({ role: 'status', content: event.message! })
+        } else if (event.type === 'done' && event.generation) {
+          const generatedApp = event.generation.app
+          setApp(generatedApp)
+          setLoading(false)
+          setRightPanel('preview')
+          setImagePreview(null)
+          setImageBase64(null)
+
+          // Auto-save to history
+          const entry: HistoryEntry = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            name: generatedApp.app_name,
+            timestamp: Date.now(),
+            app: generatedApp,
+            stack,
+            target,
+          }
+          saveToHistory(entry)
+          setHistory(loadHistory())
+
+          const rec = generatedApp.stack_recommendation
+          if (rec && !rec.is_current_stack_ideal) {
+            addMsg({ role: 'assistant', content: `__rec__${JSON.stringify(rec)}` })
+          }
+          addMsg({
+            role: 'assistant',
+            content: `${generatedApp.app_name} generada desde imagen — ${generatedApp.screens.length} pantallas via ${event.generation.provider}`,
+          })
+        } else if (event.type === 'error') {
+          setLoading(false)
+          const msg = event.message ?? ''
+          if (msg.toLowerCase().includes('anthropic') || msg.toLowerCase().includes('api_key') || msg.toLowerCase().includes('apikey')) {
+            addMsg({ role: 'status', content: 'Este endpoint requiere ANTHROPIC_API_KEY configurada en el servidor.' })
+          } else {
+            addMsg({ role: 'status', content: `Error: ${msg}` })
+          }
+        }
+      },
+    )
+  }
+
+  async function handleShare() {
+    if (!app) return
+    try {
+      const { shareUrl } = await shareApp(app)
+      await navigator.clipboard.writeText(shareUrl)
+      if (shareToastTimerRef.current) clearTimeout(shareToastTimerRef.current)
+      setShareToast({ url: shareUrl })
+      shareToastTimerRef.current = setTimeout(() => setShareToast(null), 4000)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Error al compartir'
+      addMsg({ role: 'status', content: `Error al compartir: ${msg}` })
+    }
+  }
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
 
@@ -265,11 +427,33 @@ export function Builder() {
 
         <div className="flex-1" />
 
+        {/* History button — always visible */}
+        <button
+          onClick={() => setHistoryOpen(true)}
+          className="flex items-center gap-xs h-9 px-md rounded-lg border border-outline-variant text-on-surface-variant text-[13px] font-medium hover:border-primary hover:text-primary active:scale-[0.98] transition-all"
+          title="Historial de proyectos"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>history</span>
+          Historial
+          {history.length > 0 && (
+            <span className="ml-xs px-xs py-[1px] rounded-full bg-primary/15 text-primary text-[10px] font-bold">
+              {history.length}
+            </span>
+          )}
+        </button>
+
         {app && (
           <div className="flex items-center gap-sm">
             <span className="text-[12px] text-on-surface-variant px-sm py-xs bg-surface-container rounded-full border border-outline-variant">
               {app.screens.length} pantallas · {STACK_LABELS[stack]}
             </span>
+            <button
+              onClick={handleShare}
+              className="flex items-center gap-xs h-9 px-md rounded-lg border border-outline-variant text-on-surface-variant text-[13px] font-semibold hover:border-secondary hover:text-secondary active:scale-[0.98] transition-all"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>share</span>
+              Compartir
+            </button>
             <button
               onClick={handleExportZip}
               className="flex items-center gap-xs h-9 px-md rounded-lg border border-outline-variant text-on-surface-variant text-[13px] font-semibold hover:border-primary hover:text-primary active:scale-[0.98] transition-all"
@@ -322,6 +506,58 @@ export function Builder() {
             onStackChange={setStack}
             onTargetChange={setTarget}
           />
+
+          {/* ── Image upload bar ── */}
+          <div className="border-t border-outline-variant px-md py-sm flex items-center gap-sm">
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/jpeg,image/png"
+              className="hidden"
+              onChange={handleImageSelect}
+            />
+            {imagePreview ? (
+              <>
+                <div className="relative flex-shrink-0">
+                  <img
+                    src={imagePreview}
+                    alt="Wireframe preview"
+                    className="w-10 h-10 rounded-lg object-cover border border-outline-variant"
+                  />
+                  <button
+                    onClick={() => { setImagePreview(null); setImageBase64(null) }}
+                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container border border-outline-variant flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 10 }}>close</span>
+                  </button>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-medium text-on-surface truncate">Imagen lista</p>
+                  <p className="text-[11px] text-on-surface-variant">Presioná generar para crear la app</p>
+                </div>
+                <button
+                  onClick={handleGenerateFromImage}
+                  disabled={loading}
+                  className="flex items-center gap-xs px-md py-xs rounded-lg bg-primary text-on-primary text-[12px] font-semibold hover:brightness-90 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                >
+                  {loading
+                    ? <span className="w-3.5 h-3.5 border-2 border-on-primary/30 border-t-on-primary rounded-full animate-spin" />
+                    : <span className="material-symbols-outlined" style={{ fontSize: 14 }}>auto_awesome</span>
+                  }
+                  {loading ? 'Generando...' : 'Generar'}
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => imageInputRef.current?.click()}
+                disabled={loading}
+                className="flex items-center gap-xs px-md py-xs rounded-lg border border-outline-variant text-on-surface-variant text-[12px] font-medium hover:border-primary hover:text-primary transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>photo_camera</span>
+                Generar desde imagen
+              </button>
+            )}
+          </div>
         </aside>
 
         {/* ── Derecha: Vista previa o Código ── */}
@@ -416,6 +652,118 @@ export function Builder() {
           )}
         </main>
       </div>
+
+      {/* ── Share Toast ── */}
+      {shareToast && (
+        <div className="fixed bottom-lg right-lg z-[60] flex items-center gap-sm px-md py-sm bg-surface border border-outline-variant rounded-xl shadow-2xl animate-in slide-in-from-bottom-2 duration-200">
+          <div className="w-7 h-7 rounded-lg bg-secondary/10 flex items-center justify-center flex-shrink-0">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>check_circle</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-semibold text-on-surface">Link copiado al portapapeles</p>
+            <p className="text-[11px] text-on-surface-variant truncate max-w-[240px]">{shareToast.url}</p>
+          </div>
+          <button
+            onClick={() => setShareToast(null)}
+            className="p-xs rounded-lg text-on-surface-variant hover:bg-surface-container transition-colors flex-shrink-0"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── History Panel ── */}
+      {historyOpen && (
+        <div
+          className="fixed inset-0 z-50"
+          onClick={(e) => { if (e.target === e.currentTarget) setHistoryOpen(false) }}
+        >
+          {/* Overlay */}
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
+
+          {/* Slide-in panel */}
+          <div
+            className="absolute top-0 right-0 h-full w-[360px] bg-surface border-l border-outline-variant shadow-2xl flex flex-col"
+            style={{ animation: 'slideInRight 220ms cubic-bezier(0.22,1,0.36,1)' }}
+          >
+            {/* Header */}
+            <div className="flex items-center gap-sm px-lg py-md border-b border-outline-variant flex-shrink-0">
+              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <span className="material-symbols-outlined text-primary" style={{ fontSize: 18 }}>history</span>
+              </div>
+              <div className="flex-1">
+                <p className="text-[14px] font-semibold text-on-surface">Historial</p>
+                <p className="text-[12px] text-on-surface-variant">{history.length} proyecto{history.length !== 1 ? 's' : ''} guardado{history.length !== 1 ? 's' : ''}</p>
+              </div>
+              <button
+                onClick={() => setHistoryOpen(false)}
+                className="p-xs rounded-lg text-on-surface-variant hover:bg-surface-container transition-colors"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+              </button>
+            </div>
+
+            {/* List */}
+            <div className="flex-1 overflow-y-auto px-md py-md flex flex-col gap-sm">
+              {history.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full gap-md opacity-50">
+                  <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: 40 }}>history</span>
+                  <p className="text-[13px] text-on-surface-variant text-center">
+                    Los proyectos generados aparecerán aquí
+                  </p>
+                </div>
+              ) : (
+                history.map(entry => (
+                  <div
+                    key={entry.id}
+                    className="group flex items-center gap-sm p-md rounded-xl border border-outline-variant bg-surface-container hover:border-primary/40 hover:bg-surface-container-high transition-all cursor-pointer"
+                    onClick={() => handleHistoryLoad(entry)}
+                  >
+                    <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                      <span className="material-symbols-outlined text-primary" style={{ fontSize: 18 }}>
+                        {entry.stack === 'flutter' ? 'widgets' : entry.stack === 'kotlin' ? 'android' : 'phone_iphone'}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-semibold text-on-surface truncate">{entry.name}</p>
+                      <div className="flex items-center gap-xs mt-[2px]">
+                        <span className="text-[11px] px-xs py-[1px] rounded-full bg-primary/10 text-primary font-medium">
+                          {STACK_LABELS[entry.stack]}
+                        </span>
+                        <span className="text-[11px] text-on-surface-variant">
+                          {new Date(entry.timestamp).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleHistoryDelete(entry.id) }}
+                      className="opacity-0 group-hover:opacity-100 p-xs rounded-lg text-on-surface-variant hover:bg-red-500/10 hover:text-red-400 transition-all flex-shrink-0"
+                      title="Eliminar del historial"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {history.length > 0 && (
+              <div className="flex-shrink-0 px-lg py-md border-t border-outline-variant">
+                <button
+                  onClick={() => {
+                    localStorage.removeItem(HISTORY_KEY)
+                    setHistory([])
+                  }}
+                  className="w-full flex items-center justify-center gap-xs py-sm rounded-lg border border-outline-variant text-[12px] text-on-surface-variant hover:border-red-400/50 hover:text-red-400 transition-all"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete_sweep</span>
+                  Limpiar historial
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Build APK Modal ── */}
       {buildOpen && (

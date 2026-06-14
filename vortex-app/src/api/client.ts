@@ -164,6 +164,64 @@ export function streamBuildApk(
   return () => controller.abort()
 }
 
+export function streamGenerateFromImage(
+  body: {
+    imageBase64: string
+    imageType: string
+    stack: import('../types').AppStack
+    target: import('../types').AppTarget
+    byokAnthropic?: string
+  },
+  onEvent: (e: StreamEvent) => void,
+): () => void {
+  const controller = new AbortController()
+
+  ;(async () => {
+    const res = await fetch('/api/generate/image', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try { onEvent(JSON.parse(line.slice(6)) as StreamEvent) } catch { /* ignore */ }
+        }
+      }
+    }
+  })().catch(err => {
+    if (err.name !== 'AbortError') onEvent({ type: 'error', message: err.message })
+  })
+
+  return () => controller.abort()
+}
+
+export async function shareApp(
+  app: import('../types').GeneratedApp,
+): Promise<{ shareId: string; shareUrl: string }> {
+  const res = await fetch('/api/share', {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ app }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error ?? `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
 export async function checkFlutter(): Promise<{ flutterAvailable: boolean; flutterPath: string | null }> {
   const res = await fetch('/api/build/check', { headers: headers() })
   return res.json()

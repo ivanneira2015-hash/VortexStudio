@@ -109,3 +109,18 @@ html, body, #root {
   font-size: 12px;
   line-height: 1.6;
 }
+
+/* History panel slide-in from right */
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+/* Toast slide-in from bottom */
+@keyframes slideInFromBottom {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.animate-in { animation-fill-mode: both; }
+.slide-in-from-bottom-2 { animation-name: slideInFromBottom; }
+.duration-200 { animation-duration: 200ms; }

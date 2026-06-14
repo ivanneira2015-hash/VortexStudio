@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express'
-import archiver from 'archiver'
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const archiver = require('archiver') as (format: string, opts?: object) => import('archiver').Archiver
 import { GeneratedApp } from '../types.js'
 
 const router = Router()
@@ -16,7 +17,7 @@ router.post('/zip', (req: Request, res: Response) => {
 
   const archive = archiver('zip', { zlib: { level: 9 } })
   archive.pipe(res)
-  archive.on('error', err => { console.error('ZIP error:', err); res.destroy() })
+  archive.on('error', (err: unknown) => { console.error('ZIP error:', err); res.destroy() })
 
   // pubspec.yaml
   archive.append(app.pubspec_yaml ?? '', { name: `${slug}/pubspec.yaml` })

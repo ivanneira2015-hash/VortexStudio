@@ -79,6 +79,114 @@ router.post('/', async (req: Request, res: Response) => {
   }
 })
 
+// ── POST /api/generate/image — wireframe/screenshot → app ───────
+router.post('/image', async (req: Request, res: Response) => {
+  const {
+    imageBase64,
+    imageType = 'image/jpeg',
+    stack = 'flutter' as AppStack,
+    target = 'mobile' as AppTarget,
+    byokAnthropic,
+  } = req.body
+
+  if (!imageBase64?.trim()) { res.status(400).json({ error: 'imageBase64 requerido' }); return }
+
+  const anthropicKey = byokAnthropic || process.env.ANTHROPIC_API_KEY
+  if (!anthropicKey) {
+    res.status(400).json({ error: 'La generación desde imagen requiere ANTHROPIC_API_KEY' })
+    return
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+
+  const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`)
+  const heartbeat = setInterval(() => send({ type: 'heartbeat' }), 3000)
+
+  try {
+    send({ type: 'status', message: 'Analizando wireframe...' })
+
+    const systemPrompt = `Analizá este wireframe o captura de pantalla de una app y generá código ${
+      stack === 'flutter' ? 'Flutter' : stack === 'kotlin' ? 'Jetpack Compose' : 'React Native'
+    } que replique la UI que ves. ${getSystemPrompt(stack as AppStack, target as AppTarget)}`
+
+    const stackLabel = stack === 'flutter' ? 'Flutter' : stack === 'kotlin' ? 'Jetpack Compose' : 'React Native'
+    send({ type: 'status', message: `Generando app ${stackLabel} desde imagen...` })
+
+    const mediaType = imageType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+
+    const res2 = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 8000,
+        system: systemPrompt,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: mediaType,
+                  data: imageBase64,
+                },
+              },
+              {
+                type: 'text',
+                text: `Analizá esta imagen y generá el JSON completo de la app con todas las pantallas que puedas inferir. Devolvé ÚNICAMENTE JSON válido con la estructura GeneratedApp.`,
+              },
+            ],
+          },
+        ],
+      }),
+    })
+
+    clearInterval(heartbeat)
+
+    if (!res2.ok) {
+      const errBody = await res2.text()
+      throw new Error(`Anthropic error ${res2.status}: ${errBody}`)
+    }
+
+    send({ type: 'status', message: 'Procesando resultado...' })
+
+    const data = await res2.json() as { content: Array<{ text: string }> }
+    const raw = data.content[0].text
+
+    let appData: GeneratedApp
+    try {
+      appData = JSON.parse(raw) as GeneratedApp
+    } catch {
+      const match = raw.match(/\{[\s\S]*\}/)
+      if (!match) throw new Error('La IA no devolvió JSON válido desde la imagen. Intentá de nuevo.')
+      appData = JSON.parse(match[0]) as GeneratedApp
+    }
+
+    if (!appData.screens?.length) {
+      throw new Error('La IA no generó ninguna pantalla desde la imagen. Intentá con una imagen más clara.')
+    }
+
+    send({
+      type: 'done',
+      generation: { id: null, app: appData, provider: 'anthropic', model: 'claude-sonnet-4-6' },
+    })
+    res.end()
+  } catch (err: unknown) {
+    clearInterval(heartbeat)
+    const message = err instanceof Error ? err.message : 'Error desconocido al procesar imagen'
+    send({ type: 'error', message })
+    res.end()
+  }
+})
+
 // ── POST /api/generate/screen — editar una pantalla individual ───
 router.post('/screen', async (req: Request, res: Response) => {
   const { screenName, editPrompt, appContext, stack = 'flutter', byokGroq, byokAnthropic, byokOpenai } = req.body
@@ -137,8 +245,8 @@ async function saveGeneration(
     INSERT INTO generations (project_id, prompt, code, preview, model_used, provider_used)
     VALUES (
       ${projectId}, ${prompt},
-      ${sql.json(app as unknown as Record<string, unknown>)},
-      ${sql.json(app.screens.map(s => s.preview) as unknown as Record<string, unknown>[])},
+      ${sql.json(app as unknown as Parameters<typeof sql.json>[0])},
+      ${sql.json(app.screens.map(s => s.preview) as unknown as Parameters<typeof sql.json>[0])},
       ${model}, ${provider}
     )
     RETURNING id
