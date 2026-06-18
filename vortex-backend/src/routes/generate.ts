@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { AppStack, AppTarget, GeneratedApp, GeneratedScreen } from '../types.js'
 import { generate } from '../ai/router.js'
-import { getSystemPrompt, getScreenEditPrompt } from '../ai/prompts.js'
+import { getSystemPrompt, getScreenEditPrompt, getScreenCodePrompt, buildScreenCodeUserPrompt } from '../ai/prompts.js'
 import { sql } from '../db.js'
 
 const router = Router()
@@ -39,7 +39,7 @@ router.post('/', async (req: Request, res: Response) => {
       systemPrompt,
       userPrompt,
       jsonMode: true,
-      maxTokens: 8000,
+      maxTokens: 10000,
       byokGroq,
       byokAnthropic,
       byokOpenai,
@@ -61,6 +61,43 @@ router.post('/', async (req: Request, res: Response) => {
     if (!appData.screens?.length) {
       throw new Error('La IA no generó ninguna pantalla. Intentá con un prompt más detallado.')
     }
+
+    // ── Post-procesamiento: regenerar pantallas incompletas ────────
+    const incompleteScreens = appData.screens.filter(s => !s.code || s.code.length < 200)
+    if (incompleteScreens.length > 0) {
+      send({ type: 'status', message: `Completando código faltante (${incompleteScreens.length} pantalla${incompleteScreens.length > 1 ? 's' : ''})...` })
+
+      const appInfo = {
+        app_name: appData.app_name,
+        description: appData.description,
+        screens: appData.screens.map(s => ({ name: s.name, route: s.route })),
+      }
+
+      for (const screen of incompleteScreens) {
+        try {
+          const screenResult = await generate({
+            systemPrompt: getScreenCodePrompt(stack as AppStack),
+            userPrompt: buildScreenCodeUserPrompt(
+              { name: screen.name, description: screen.description, code: screen.code ?? '' },
+              appInfo,
+              stack as AppStack,
+            ),
+            jsonMode: true,
+            maxTokens: 6000,
+            byokGroq,
+            byokAnthropic,
+            byokOpenai,
+          })
+          const screenData = JSON.parse(screenResult.content) as { code?: string }
+          if (screenData.code && screenData.code.length > 200) {
+            screen.code = screenData.code
+          }
+        } catch {
+          // Pantalla no regenerable — dejamos el código parcial
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────
 
     const savedId = projectId
       ? await saveGeneration(projectId, prompt, appData, result.model, result.provider)
@@ -261,7 +298,7 @@ function buildUserPrompt(prompt: string, stack: AppStack, target: AppTarget): st
 
 ${prompt}
 
-Generá una app COMPLETA y PROFESIONAL con 4-6 pantallas. El código debe ser funcional, con datos de ejemplo realistas, estado real, y navegación completa entre todas las pantallas. No uses código genérico ni placeholders vacíos.`
+Generá una app COMPLETA y PROFESIONAL con 3-4 pantallas (MÁXIMO 4). El código debe ser funcional, navegación real entre pantallas, datos de ejemplo realistas y específicos al dominio, sin placeholders ni console.log como handlers.`
 }
 
 export default router

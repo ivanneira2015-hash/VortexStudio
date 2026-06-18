@@ -41,21 +41,34 @@ async function generateGroq(opts: RouterOptions, apiKey: string): Promise<Router
   const model = 'llama-3.3-70b-versatile'
   const maxTokens = opts.maxTokens ?? 12000
 
-  // JSON mode + no streaming = salida garantizada y válida
-  const completion = await groq.chat.completions.create({
+  let completion
+  try {
+    completion = await groq.chat.completions.create({
     model,
     messages: [
       { role: 'system', content: opts.systemPrompt },
       { role: 'user', content: opts.userPrompt },
     ],
-    max_tokens: maxTokens,
-    temperature: 0.2, // más determinista = código más correcto
-    response_format: opts.jsonMode !== false ? { type: 'json_object' } : undefined,
-  })
+      max_tokens: maxTokens,
+      temperature: 0.2,
+      response_format: opts.jsonMode !== false ? { type: 'json_object' } : undefined,
+    })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    // Detectar rate limit TPM o TPD y mostrar mensaje claro
+    const retryMatch = msg.match(/Please try again in (\d+m[\d.]+s|\d+[\d.]+s)/)
+    const retryIn = retryMatch ? ` Intentá en ${retryMatch[1].replace('m', ' min ').replace('s', ' seg')}.` : ''
+    if (msg.includes('rate_limit_exceeded') || msg.includes('429')) {
+      if (msg.includes('tokens per day') || msg.includes('TPD')) {
+        throw new Error(`Límite diario de tokens de Groq alcanzado.${retryIn} Podés configurar tu propia API key en Configuración.`)
+      }
+      throw new Error(`Demasiadas solicitudes a Groq.${retryIn} Esperá un momento e intentá de nuevo.`)
+    }
+    throw err
+  }
 
-  const content = completion.choices[0].message.content!
+  const content = completion.choices[0].message.content ?? ''
 
-  // Si hay onChunk (streaming simulado), emitimos el contenido en chunks
   if (opts.onChunk) {
     const chunkSize = 80
     for (let i = 0; i < content.length; i += chunkSize) {

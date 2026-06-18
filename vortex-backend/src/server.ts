@@ -7,6 +7,7 @@ import generateRouter from './routes/generate.js'
 import exportRouter from './routes/export.js'
 import buildRouter from './routes/build.js'
 import shareRouter from './routes/share.js'
+import { authLimiter, generateLimiter, globalLimiter } from './middleware/rateLimiter.js'
 
 const app = express()
 const PORT = Number(process.env.PORT) || 3001
@@ -22,11 +23,12 @@ app.use(cors({
   credentials: true,
 }))
 app.use(express.json())
+app.use(globalLimiter)
 
 app.get('/health', (_req, res) => res.json({ ok: true, version: '0.1.0' }))
-app.use('/api/auth', authRouter)
+app.use('/api/auth', authLimiter, authRouter)
 app.use('/api/projects', projectsRouter)
-app.use('/api/generate', generateRouter)
+app.use('/api/generate', generateLimiter, generateRouter)
 app.use('/api/export', exportRouter)
 app.use('/api/build', buildRouter)
 app.use('/api/share', shareRouter)

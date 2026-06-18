@@ -1,5 +1,9 @@
 import { AppStack, AppTarget } from '../types.js'
 
+// ── Tipos locales para las funciones de screen ────────────────────
+type ScreenInfo = { name: string; description: string; code: string }
+type AppInfo = { app_name: string; description: string; screens: Array<{ name: string; route: string }> }
+
 export function getSystemPrompt(stack: AppStack, target: AppTarget): string {
   const tvNote = target !== 'mobile'
     ? '\n\nTV REQUIREMENTS: Usar Focus/FocusScope para navegación D-pad. Fuentes mínimo 18sp. Sin gestos táctiles. Layouts horizontales con cards grandes. Indicadores de foco visibles.'
@@ -23,13 +27,14 @@ ESTÁNDARES DE CALIDAD OBLIGATORIOS:
 - Código Flutter REAL, no plantillas vacías. Cada pantalla debe tener lógica funcional.
 - Datos de ejemplo realistas (nombres, precios, descripciones reales, no "Lorem ipsum" ni "Item 1")
 - Estado real con StatefulWidget: listas cargadas, contadores, toggles, formularios con validación
-- Navegación funcional: Navigator.pushNamed() con rutas definidas en main.dart
+- Navegación REAL: Navigator.pushNamed(context, '/ruta') — NUNCA print() ni debugPrint() como handler de botón
 - UI profesional: padding consistente (16-24px), tipografía jerarquizada, colores coherentes
-- Al menos 8-12 widgets significativos por pantalla
+- Entre 6-8 widgets significativos por pantalla (no excedas este límite para evitar truncado)
 - AppBar con acciones relevantes (buscar, filtrar, notificaciones según contexto)
-- Listas con mínimo 5 items de datos realistas con nombre e imágenes placeholder realistas
+- Listas con mínimo 4 items de datos realistas con nombre e imágenes placeholder realistas
 - Formularios con TextFormField, validación real, y botón de acción
-- BottomNavigationBar en la pantalla principal si la app tiene 3+ secciones`
+- BottomNavigationBar en la pantalla principal si la app tiene 3+ secciones
+- NUNCA uses print() o debugPrint() como respuesta a una acción de usuario — siempre navegá o mostrá un SnackBar/AlertDialog`
 
 const PREVIEW_TYPES = `
 Tipos de componentes para preview.components:
@@ -89,11 +94,12 @@ Formato de salida EXACTO:
 ${PREVIEW_TYPES}
 
 REGLAS FINALES:
-- Generá entre 4 y 6 pantallas completas según la complejidad de la app
+- Generá entre 3 y 4 pantallas completas según la complejidad de la app (MÁXIMO 4 — más pantallas trunca el código)
 - El código de cada pantalla debe poder copiarse y correr sin modificaciones
-- Los datos de ejemplo deben ser coherentes y específicos al dominio de la app
+- Los datos de ejemplo deben ser coherentes y específicos al dominio de la app (mínimo 4 items realistas)
 - Elegí una paleta de colores profesional y coherente con el propósito de la app
-- main.dart debe incluir TODAS las rutas definidas en screens`
+- main.dart debe usar Navigator.pushNamed con todas las rutas definidas en screens
+- NUNCA print() ni debugPrint() como handler — siempre Navigator.pushNamed, showDialog, o ScaffoldMessenger.of(context).showSnackBar`
 
 const KOTLIN_PROMPT = `Eres un desarrollador Android Senior especializado en Jetpack Compose. Generás apps Android completas y listas para producción.
 
@@ -105,8 +111,8 @@ ESTÁNDARES DE CALIDAD OBLIGATORIOS:
 - Estado real con remember/mutableStateOf: listas, contadores, toggles, formularios
 - Navegación funcional con NavController y NavHost
 - UI profesional con Material3: Surface, Scaffold, TopAppBar, NavigationBar
-- Al menos 8-12 composables significativos por pantalla
-- Listas con mínimo 5 items de datos realistas con LazyColumn
+- Entre 6-8 composables significativos por pantalla (no excedas para evitar truncado)
+- Listas con mínimo 4 items de datos realistas con LazyColumn
 - Formularios con TextField, validación, y botón de acción
 
 Formato de salida EXACTO:
@@ -146,25 +152,38 @@ Formato de salida EXACTO:
 ${PREVIEW_TYPES}
 
 REGLAS FINALES:
-- Generá entre 4 y 6 pantallas completas
+- Generá entre 3 y 4 pantallas completas (MÁXIMO 4 — más pantallas trunca el código)
 - El código de cada pantalla debe ser una @Composable function completa con sus imports
+- Navegación REAL: navController.navigate("ruta") — NUNCA Log.d() ni println() como handler de botón
 - Para TV: usar androidx.tv:tv-compose con TvLazyColumn y Card focusable
-- Los datos de ejemplo deben ser coherentes y específicos al dominio
-- stack_recommendation: Compose es ideal para apps con acceso profundo a APIs Android nativas`
+- Los datos de ejemplo deben ser coherentes, específicos al dominio, con mínimo 4 items realistas
+- stack_recommendation: Compose es ideal para apps con acceso profundo a APIs Android nativas
+- NUNCA Log.d() ni println() como respuesta a una acción de usuario — siempre navController.navigate(), showDialog, o un estado visual`
 
 const RN_PROMPT = `Eres un desarrollador React Native Senior especializado en Expo. Generás apps Android completas y listas para producción.
 
 CRÍTICO: Tu respuesta COMPLETA debe ser JSON válido. Sin markdown, sin bloques de código, sin texto fuera del JSON.
 
 ESTÁNDARES DE CALIDAD OBLIGATORIOS:
-- Código React Native REAL con Expo, no plantillas vacías.
-- Datos de ejemplo realistas (nombres, precios, descripciones reales)
-- Estado real con useState/useEffect: listas, contadores, toggles, formularios
-- Navegación funcional con React Navigation v6 (Stack.Navigator, Tab.Navigator)
-- UI profesional con StyleSheet.create: padding consistente, colores coherentes
-- Al menos 8-12 componentes significativos por pantalla
-- Listas con FlatList y mínimo 5 items de datos realistas
-- Formularios con TextInput, validación, y TouchableOpacity/Pressable
+- Código React Native REAL con Expo SDK 51, no plantillas vacías.
+- Datos de ejemplo realistas (nombres, precios, descripciones reales, NO "Item 1" ni "Lorem ipsum") — mínimo 4 items hardcodeados por lista
+- Estado real con useState/useEffect: listas cargadas, contadores, toggles, formularios con validación real y Alert.alert()
+- UI profesional con StyleSheet.create definido AL FINAL de CADA archivo de pantalla
+- CRÍTICO DE AUTOCONTENIDO: NUNCA uses "import { styles } from './styles'" ni imports de archivos locales externos. Cada pantalla define su propio const styles = StyleSheet.create({...}) al final del archivo
+- Listas con FlatList y mínimo 4 items de datos realistas hardcodeados
+- Formularios con TextInput controlado, validación real, y TouchableOpacity/Pressable
+
+NAVEGACIÓN OBLIGATORIA (CRÍTICO):
+- CADA pantalla recibe ({ navigation }: { navigation: any }) como prop — SIN EXCEPCIÓN
+- Botones de acción usan navigation.navigate('NombrePantalla') — NUNCA console.log()
+- Pantallas secundarias incluyen un botón "Volver" que llama navigation.goBack()
+- NUNCA uses console.log() como handler de un botón o touchable — siempre navegá o mostrá Alert.alert()
+- App.tsx usa createStackNavigator de @react-navigation/stack (NO createBottomTabNavigator salvo que sea natural para la app)
+
+TypeScript OBLIGATORIO:
+- Cada pantalla define sus types inline: type Item = { id: string; name: string; ... }
+- Props de componentes internos tipadas: ({ item }: { item: Item }) => ...
+- Sin 'any' innecesario salvo navigation prop
 
 Formato de salida EXACTO:
 {
@@ -181,7 +200,7 @@ Formato de salida EXACTO:
       "name": "HomeScreen",
       "route": "Home",
       "description": "descripción de qué muestra esta pantalla",
-      "code": "CÓDIGO REACT NATIVE COMPLETO — componente funcional con imports, useState/useEffect, datos de ejemplo reales, StyleSheet.create",
+      "code": "import React, { useState } from 'react'; import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert } from 'react-native'; type Item = { id: string; name: string; }; export default function HomeScreen({ navigation }: { navigation: any }) { /* CÓDIGO COMPLETO — navigation.navigate() en botones — StyleSheet.create al final */ }",
       "preview": {
         "title": "Título de la pantalla",
         "bg_color": "#hexcolor",
@@ -189,8 +208,8 @@ Formato de salida EXACTO:
       }
     }
   ],
-  "main_dart": "CÓDIGO COMPLETO de App.tsx: NavigationContainer con Stack.Navigator o Tab.Navigator, todas las pantallas registradas con sus rutas",
-  "pubspec_yaml": "CONTENIDO COMPLETO de package.json con dependencias Expo SDK, React Navigation v6, expo-linear-gradient y @expo/vector-icons con versiones exactas",
+  "main_dart": "CÓDIGO COMPLETO de App.tsx: import { NavigationContainer } from '@react-navigation/native'; import { createStackNavigator } from '@react-navigation/stack'; const Stack = createStackNavigator(); — todas las pantallas registradas como Stack.Screen con sus nombres exactos",
+  "pubspec_yaml": "{\"name\":\"app_name\",\"version\":\"1.0.0\",\"dependencies\":{\"expo\":\"~51.0.0\",\"react\":\"18.2.0\",\"react-native\":\"0.74.1\",\"@react-navigation/native\":\"^6.1.0\",\"@react-navigation/stack\":\"^6.3.0\",\"react-native-screens\":\"~3.31.0\",\"react-native-safe-area-context\":\"4.10.1\"}}",
   "is_tv_compatible": false,
   "stack_recommendation": {
     "recommended_stack": "react_native",
@@ -203,8 +222,61 @@ Formato de salida EXACTO:
 ${PREVIEW_TYPES}
 
 REGLAS FINALES:
-- Generá entre 4 y 6 pantallas completas
-- Cada pantalla debe ser un componente funcional completo con sus imports
-- Usá StyleSheet.create para todos los estilos (no inline styles)
-- Los datos de ejemplo deben ser coherentes y específicos al dominio
+- Generá entre 3 y 4 pantallas completas y autocontenidas (MÁXIMO 4 — más pantallas trunca el código)
+- CADA pantalla: ({ navigation }: { navigation: any }) como prop + types inline + StyleSheet.create al final
+- NUNCA importes de './styles', '../utils', '../theme' ni ningún archivo local
+- NUNCA console.log() como handler de botón — siempre navigation.navigate() o Alert.alert()
+- Los datos de ejemplo deben ser coherentes, específicos al dominio, y realistas (mínimo 4 items)
 - stack_recommendation: React Native/Expo es ideal si el equipo conoce JavaScript o necesita reutilizar código con web`
+
+// ── Prompts para regenerar pantallas incompletas ──────────────────
+
+export function getScreenCodePrompt(stack: AppStack): string {
+  const lang = stack === 'flutter' ? 'Dart/Flutter' : stack === 'kotlin' ? 'Kotlin Compose' : 'React Native'
+  const navInstruction = stack === 'react_native'
+    ? 'navigation.navigate("NombrePantalla") — recibir ({ navigation }: { navigation: any }) como prop'
+    : stack === 'flutter'
+    ? 'Navigator.pushNamed(context, "/ruta") o Navigator.pop(context)'
+    : 'navController.navigate("ruta")'
+
+  return `Generás código ${lang} completo para UNA pantalla.
+
+CRÍTICO: Devolvé SOLO JSON válido: { "code": "...código completo aquí..." }
+
+REQUISITOS DEL CÓDIGO:
+- Código 100% funcional, sin TODOs ni placeholders
+- Navegación REAL: ${navInstruction}
+- NUNCA uses console.log() / print() / Log.d() como handler de botón — siempre navegá o mostrá un Alert/SnackBar/AlertDialog
+- Datos de ejemplo realistas y específicos al dominio (mínimo 4 items hardcodeados)
+- Formularios con validación real
+- Sin imports de archivos locales externos
+- ${stack === 'react_native'
+    ? 'TypeScript types inline (type Item = {...}) + StyleSheet.create({...}) al final del archivo'
+    : stack === 'flutter'
+    ? 'Widget autocontenido (StatefulWidget o StatelessWidget) con todos sus imports y estilos'
+    : '@Composable function con Material3 styling y remember/mutableStateOf para estado'}
+- Sin markdown, sin bloques de código — solo el JSON`
+}
+
+export function buildScreenCodeUserPrompt(
+  screen: ScreenInfo,
+  app: AppInfo,
+  stack: AppStack,
+): string {
+  const otherScreens = app.screens
+    .filter(s => s.name !== screen.name)
+    .map(s => `- ${s.name} (ruta: ${s.route})`)
+    .join('\n')
+
+  return `App: "${app.app_name}" — ${app.description}
+
+Pantalla a generar: ${screen.name}
+Descripción: ${screen.description}
+
+Otras pantallas disponibles para navegar:
+${otherScreens || '(ninguna)'}
+
+Generá el código completo y funcional para "${screen.name}". La navegación entre pantallas debe funcionar usando los nombres/rutas listados arriba.
+
+Devolvé SOLO JSON: { "code": "...código completo..." }`
+}

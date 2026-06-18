@@ -8,11 +8,19 @@ interface Props {
 
 type Tab = 'screens' | 'main' | 'pubspec'
 
+const STACK_FILES = {
+  flutter:      { main: 'main.dart',       deps: 'pubspec.yaml',    ext: 'dart' },
+  kotlin:       { main: 'MainActivity.kt', deps: 'build.gradle.kts', ext: 'kt'  },
+  react_native: { main: 'App.tsx',         deps: 'package.json',    ext: 'tsx'  },
+}
+
 export function CodePanel({ app, streamingText }: Props) {
   const [tab, setTab] = useState<Tab>('screens')
   const [screenIndex, setScreenIndex] = useState(0)
 
   const screen = app.screens[screenIndex]
+  const stackKey = app.stack_recommendation?.recommended_stack ?? 'flutter'
+  const files = STACK_FILES[stackKey] ?? STACK_FILES.flutter
 
   function getContent() {
     if (tab === 'main') return app.main_dart
@@ -25,7 +33,11 @@ export function CodePanel({ app, streamingText }: Props) {
   }
 
   function handleDownload() {
-    const name = tab === 'main' ? 'main.dart' : tab === 'pubspec' ? 'pubspec.yaml' : `${screen?.name ?? 'pantalla'}.dart`
+    const name = tab === 'main'
+      ? files.main
+      : tab === 'pubspec'
+      ? files.deps
+      : `${screen?.name ?? 'pantalla'}.${files.ext}`
     const blob = new Blob([getContent()], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url; a.download = name; a.click()
@@ -34,8 +46,8 @@ export function CodePanel({ app, streamingText }: Props) {
 
   const tabs: { key: Tab; label: string; icon: string }[] = [
     { key: 'screens', label: 'Pantallas', icon: 'layers' },
-    { key: 'main',    label: 'main.dart',   icon: 'code' },
-    { key: 'pubspec', label: 'pubspec.yaml', icon: 'package_2' },
+    { key: 'main',    label: files.main,  icon: 'code' },
+    { key: 'pubspec', label: files.deps,  icon: 'package_2' },
   ]
 
   return (

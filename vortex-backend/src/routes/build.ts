@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { GeneratedApp } from '../types.js'
-import { writeFileSync, mkdirSync, existsSync } from 'fs'
+import { writeFileSync, mkdirSync, existsSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir, userInfo } from 'os'
 import { randomUUID } from 'crypto'
@@ -113,6 +113,13 @@ router.post('/apk', async (req: Request, res: Response) => {
     const fileName = `${slug}.apk`
 
     apkStore.set(buildId, { path: apkPath, fileName, size })
+
+    // Cleanup temp dir y entrada del store después de 1 hora
+    const tempRoot = join(tmpdir(), `vortex_${buildId}`)
+    setTimeout(() => {
+      try { rmSync(tempRoot, { recursive: true, force: true }) } catch {}
+      apkStore.delete(buildId)
+    }, 60 * 60 * 1000)
 
     clearInterval(heartbeat)
     send({ type: 'progress', percent: 100, step: 'done' })

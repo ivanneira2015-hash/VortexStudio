@@ -57,11 +57,18 @@ export function PhoneFrame({ app, isTv, activeIndex: controlledIdx, onScreenChan
   const screen = app.screens[activeIndex]
   if (!screen) return null
 
-  const theme = {
+  const rawTheme = {
     primary: app.theme.primary ?? '#6750A4',
     background: screen.preview.bg_color ?? app.theme.background ?? '#FFFBFE',
     surface: app.theme.surface ?? '#FFFBFE',
     textPrimary: app.theme.text_primary ?? '#1C1B1F',
+  }
+
+  // Auto-correct: if bg is dark but text_primary is also dark, flip text to light
+  const bgDark = isDark(rawTheme.background)
+  const theme = {
+    ...rawTheme,
+    textPrimary: bgDark && isDark(rawTheme.textPrimary) ? '#EEEEEE' : rawTheme.textPrimary,
   }
 
   const onPrimary = isDark(theme.primary) ? '#fff' : '#1C1B1F'
@@ -100,7 +107,7 @@ export function PhoneFrame({ app, isTv, activeIndex: controlledIdx, onScreenChan
 
         {/* Scrollable screen content */}
         <div className="device-screen" style={{ background: theme.background }}>
-          <ScreenRenderer screen={screen} theme={theme} onPrimary={onPrimary} />
+          <ScreenRenderer screen={screen} theme={theme} onPrimary={onPrimary} isTv={!!isTv} />
         </div>
 
         {/* Home bar */}
@@ -108,22 +115,33 @@ export function PhoneFrame({ app, isTv, activeIndex: controlledIdx, onScreenChan
       </div>
 
       {/* App meta */}
-      <div className="app-meta">
+      <div className="app-meta" style={{ width: isTv ? 480 : 280 }}>
         <span className="app-name">{app.app_name}</span>
         <span className="app-desc">{app.description}</span>
       </div>
 
-      {/* DartPad button */}
-      <a
-        href="https://dartpad.dev"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="dartpad-btn"
-        style={{ borderColor: theme.primary, color: theme.primary }}
-        title="Abri DartPad y pega el codigo generado para verlo en Flutter"
-      >
-        <span>⟨/⟩</span> Abrir en DartPad
-      </a>
+      {/* Playground button — URL cambia según el stack */}
+      {(() => {
+        const stackKey = app.stack_recommendation?.recommended_stack ?? 'flutter'
+        const playgrounds: Record<string, { url: string; label: string; hint: string }> = {
+          flutter:      { url: 'https://dartpad.dev',          label: 'Abrir en DartPad',      hint: 'Copiá el código Dart y pegalo en DartPad para previsualizarlo' },
+          react_native: { url: 'https://snack.expo.dev',       label: 'Abrir en Expo Snack',   hint: 'Copiá el código React Native y pegalo en Expo Snack para previsualizarlo' },
+          kotlin:       { url: 'https://play.kotlinlang.org',  label: 'Kotlin Playground',     hint: 'Copiá el código Kotlin y pegalo en Kotlin Playground' },
+        }
+        const pg = playgrounds[stackKey] ?? playgrounds.flutter
+        return (
+          <a
+            href={pg.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="dartpad-btn"
+            style={{ borderColor: theme.primary, color: theme.primary }}
+            title={pg.hint}
+          >
+            <span>⟨/⟩</span> {pg.label}
+          </a>
+        )
+      })()}
 
       <style>{`
         .phone-wrapper {
@@ -327,22 +345,29 @@ interface ThemeCtx {
   textPrimary: string
 }
 
-function ScreenRenderer({ screen, theme, onPrimary }: { screen: GeneratedScreen; theme: ThemeCtx; onPrimary: string }) {
+function ScreenRenderer({ screen, theme, onPrimary, isTv }: { screen: GeneratedScreen; theme: ThemeCtx; onPrimary: string; isTv?: boolean }) {
   const components = screen.preview.components ?? []
   const hasNavBar = components.some(c => c.type === 'nav_bar')
   const hasAppBar = components.some(c => c.type === 'app_bar')
 
-  const topOffset = hasAppBar ? 0 : 28 // leave room for status bar when no app_bar
+  const topOffset = (!isTv && !hasAppBar) ? 28 : 0
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', paddingTop: topOffset }}>
       {/* Scrollable content area */}
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', paddingBottom: hasNavBar ? 0 : 16, scrollbarWidth: 'none' }}>
-        {components
-          .filter(c => c.type !== 'nav_bar')
-          .map((c, i) => (
-            <ComponentRenderer key={i} c={c} theme={theme} onPrimary={onPrimary} />
-          ))}
+        {(() => {
+          const visible = components.filter(c => c.type !== 'nav_bar')
+          if (visible.length === 0) return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8, opacity: 0.5, padding: 16 }}>
+              <div style={{ fontSize: isTv ? 28 : 22 }}>📱</div>
+              <div style={{ fontSize: isTv ? 13 : 11, color: theme.textPrimary, textAlign: 'center' }}>
+                {screen.preview.title ?? screen.name}
+              </div>
+            </div>
+          )
+          return <>{visible.map((c, i) => <ComponentRenderer key={i} c={c} theme={theme} onPrimary={onPrimary} />)}</>
+        })()}
       </div>
 
       {/* Fixed bottom nav bar */}
@@ -597,8 +622,14 @@ function ComponentRenderer({ c, theme, onPrimary }: { c: PreviewComponent; theme
       return <div style={{ height: h, flexShrink: 0 }} />
     }
 
-    default:
-      return null
+    default: {
+      const fallback = c.title ?? c.label ?? c.value ?? c.type
+      return (
+        <div style={{ margin: '4px 12px', padding: '8px 10px', borderRadius: 8, background: withAlpha(surface, 0.6), color: textPrimary, fontSize: 12 }}>
+          {fallback}
+        </div>
+      )
+    }
   }
 }
 

@@ -226,3 +226,29 @@ export async function checkFlutter(): Promise<{ flutterAvailable: boolean; flutt
   const res = await fetch('/api/build/check', { headers: headers() })
   return res.json()
 }
+
+export async function loginUser(email: string, password: string): Promise<{ token: string; user: { id: string; email: string } }> {
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error ?? 'Error al iniciar sesión')
+  }
+  return res.json()
+}
+
+export async function registerUser(email: string, password: string): Promise<{ token: string; user: { id: string; email: string } }> {
+  const res = await fetch('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error ?? 'Error al registrarse')
+  }
+  return res.json()
+}

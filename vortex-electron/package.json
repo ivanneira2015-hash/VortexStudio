@@ -1,0 +1,40 @@
+{
+  "name": "vortex-studio",
+  "version": "0.1.0",
+  "description": "AI-powered Android app builder",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build-frontend": "cd ../vortex-app && npm run build",
+    "build-backend": "cd ../vortex-backend && npm run build",
+    "pack": "npm run build-frontend && npm run build-backend && electron-builder --dir",
+    "dist": "npm run build-frontend && npm run build-backend && electron-builder"
+  },
+  "build": {
+    "appId": "com.vortexstudio.app",
+    "productName": "Vortex Studio",
+    "directories": { "output": "dist" },
+    "files": [
+      "src/**/*",
+      "node_modules/**/*",
+      "../vortex-app/dist/**/*",
+      "../vortex-backend/dist/**/*",
+      "../vortex-backend/node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.icns"
+    }
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}
