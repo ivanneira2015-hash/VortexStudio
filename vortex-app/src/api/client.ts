@@ -1,4 +1,7 @@
-const BASE = '/api'
+const ORIGIN = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? ''
+const BASE = `${ORIGIN}/api`
+
+const apiUrl = (path: string) => `${ORIGIN}${path}`
 
 function getToken() { return localStorage.getItem('vortex_token') }
 
@@ -58,7 +61,7 @@ export function streamGenerate(
   const controller = new AbortController()
 
   ;(async () => {
-    const res = await fetch('/api/generate', {
+    const res = await fetch(apiUrl('/api/generate'), {
       method: 'POST',
       headers: headers(),
       body: JSON.stringify(body),
@@ -97,7 +100,7 @@ export function streamEditScreen(
   const controller = new AbortController()
 
   ;(async () => {
-    const res = await fetch('/api/generate/screen', {
+    const res = await fetch(apiUrl('/api/generate/screen'), {
       method: 'POST',
       headers: headers(),
       body: JSON.stringify(body),
@@ -134,7 +137,7 @@ export function streamBuildApk(
   const controller = new AbortController()
 
   ;(async () => {
-    const res = await fetch('/api/build/apk', {
+    const res = await fetch(apiUrl('/api/build/apk'), {
       method: 'POST',
       headers: headers(),
       body: JSON.stringify(body),
@@ -177,7 +180,7 @@ export function streamGenerateFromImage(
   const controller = new AbortController()
 
   ;(async () => {
-    const res = await fetch('/api/generate/image', {
+    const res = await fetch(apiUrl('/api/generate/image'), {
       method: 'POST',
       headers: headers(),
       body: JSON.stringify(body),
@@ -210,7 +213,7 @@ export function streamGenerateFromImage(
 export async function shareApp(
   app: import('../types').GeneratedApp,
 ): Promise<{ shareId: string; shareUrl: string }> {
-  const res = await fetch('/api/share', {
+  const res = await fetch(apiUrl('/api/share'), {
     method: 'POST',
     headers: headers(),
     body: JSON.stringify({ app }),
@@ -223,7 +226,7 @@ export async function shareApp(
 }
 
 export async function checkFlutter(): Promise<{ flutterAvailable: boolean; flutterPath: string | null }> {
-  const res = await fetch('/api/build/check', { headers: headers() })
+  const res = await fetch(apiUrl('/api/build/check'), { headers: headers() })
   return res.json()
 }
 
