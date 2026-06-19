@@ -231,7 +231,7 @@ export async function checkFlutter(): Promise<{ flutterAvailable: boolean; flutt
 }
 
 export async function loginUser(email: string, password: string): Promise<{ token: string; user: { id: string; email: string } }> {
-  const res = await fetch('/api/auth/login', {
+  const res = await fetch(apiUrl('/api/auth/login'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -244,7 +244,7 @@ export async function loginUser(email: string, password: string): Promise<{ toke
 }
 
 export async function registerUser(email: string, password: string): Promise<{ token: string; user: { id: string; email: string } }> {
-  const res = await fetch('/api/auth/register', {
+  const res = await fetch(apiUrl('/api/auth/register'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
